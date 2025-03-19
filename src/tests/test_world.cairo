@@ -8,7 +8,9 @@ mod tests {
     };
 
     use lyricsflip::systems::actions::{actions, IActionsDispatcher, IActionsDispatcherTrait};
+    use lyricsflip::systems::cards::{cards, ICardActionsDispatcher, ICardActionsDispatcherTrait};
     use lyricsflip::models::round::{Rounds, m_Rounds, RoundsCount, m_RoundsCount};
+    use lyricsflip::models::card::{Card, m_Card};
     use lyricsflip::constants::{GAME_ID};
     use lyricsflip::constants::{Genre};
 
@@ -19,8 +21,10 @@ mod tests {
             resources: [
                 TestResource::Model(m_Rounds::TEST_CLASS_HASH),
                 TestResource::Model(m_RoundsCount::TEST_CLASS_HASH),
+                TestResource::Model(m_Card::TEST_CLASS_HASH),
                 TestResource::Event(actions::e_RoundCreated::TEST_CLASS_HASH),
                 TestResource::Contract(actions::TEST_CLASS_HASH),
+                TestResource::Contract(cards::TEST_CLASS_HASH),
             ]
                 .span(),
         };
@@ -31,7 +35,9 @@ mod tests {
     fn contract_defs() -> Span<ContractDef> {
         [
             ContractDefTrait::new(@"lyricsflip", @"actions")
-                .with_writer_of([dojo::utils::bytearray_hash(@"lyricsflip")].span())
+                .with_writer_of([dojo::utils::bytearray_hash(@"lyricsflip")].span()),
+            ContractDefTrait::new(@"lyricsflip", @"cards")
+                .with_writer_of([dojo::utils::bytearray_hash(@"lyricsflip")].span()),
         ]
             .span()
     }
@@ -70,5 +76,25 @@ mod tests {
         assert(res.round.creator == caller, 'round creator is wrong');
         assert(res.round.genre == Genre::Pop.into(), 'wrong round genre');
         assert(res.round.players_count == 1, 'wrong players_count');
+    }
+
+    #[test]
+    fn test_create_card() {
+        let caller = starknet::contract_address_const::<0x0>();
+
+        let ndef = namespace_def();
+        let mut world = spawn_test_world([ndef].span());
+        world.sync_perms_and_inits(contract_defs());
+
+        let (contract_address, _) = world.dns(@"cards").unwrap();
+        let actions_system = ICardActionsDispatcher { contract_address };
+
+        let card_id = 30_u256;
+
+        actions_system.create_card(card_id);
+
+        let card: Card = world.read_model(card_id);
+
+        assert(card.genre == 'Pop', 'wrong genre');
     }
 }
