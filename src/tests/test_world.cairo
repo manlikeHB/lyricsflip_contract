@@ -9,8 +9,12 @@ mod tests {
 
     use lyricsflip::systems::actions::{actions, IActionsDispatcher, IActionsDispatcherTrait};
     use lyricsflip::systems::cards::{cards, ICardActionsDispatcher, ICardActionsDispatcherTrait};
+    use lyricsflip::systems::config::{
+        game_config, IGameConfigDispatcher, IGameConfigDispatcherTrait,
+    };
     use lyricsflip::models::round::{Rounds, m_Rounds, RoundsCount, m_RoundsCount};
     use lyricsflip::models::card::{Card, m_Card};
+    use lyricsflip::models::config::{GameConfig, m_GameConfig};
     use lyricsflip::constants::{GAME_ID};
     use lyricsflip::constants::{Genre};
 
@@ -22,9 +26,11 @@ mod tests {
                 TestResource::Model(m_Rounds::TEST_CLASS_HASH),
                 TestResource::Model(m_RoundsCount::TEST_CLASS_HASH),
                 TestResource::Model(m_Card::TEST_CLASS_HASH),
+                TestResource::Model(m_GameConfig::TEST_CLASS_HASH),
                 TestResource::Event(actions::e_RoundCreated::TEST_CLASS_HASH),
                 TestResource::Contract(actions::TEST_CLASS_HASH),
                 TestResource::Contract(cards::TEST_CLASS_HASH),
+                TestResource::Contract(game_config::TEST_CLASS_HASH),
             ]
                 .span(),
         };
@@ -37,6 +43,8 @@ mod tests {
             ContractDefTrait::new(@"lyricsflip", @"actions")
                 .with_writer_of([dojo::utils::bytearray_hash(@"lyricsflip")].span()),
             ContractDefTrait::new(@"lyricsflip", @"cards")
+                .with_writer_of([dojo::utils::bytearray_hash(@"lyricsflip")].span()),
+            ContractDefTrait::new(@"lyricsflip", @"game_config")
                 .with_writer_of([dojo::utils::bytearray_hash(@"lyricsflip")].span()),
         ]
             .span()
@@ -96,5 +104,46 @@ mod tests {
         let card: Card = world.read_model(card_id);
 
         assert(card.genre == 'Pop', 'wrong genre');
+    }
+
+    #[test]
+    fn test_set_game_config() {
+        let caller = starknet::contract_address_const::<0x0>();
+        let bob = starknet::contract_address_const::<'BOB'>();
+
+        let ndef = namespace_def();
+        let mut world = spawn_test_world([ndef].span());
+        world.sync_perms_and_inits(contract_defs());
+
+        let (contract_address, _) = world.dns(@"game_config").unwrap();
+        let game_config_system = IGameConfigDispatcher { contract_address };
+
+        game_config_system.set_game_config(bob);
+
+        let game_config: GameConfig = world.read_model(GAME_ID);
+
+        assert(game_config.admin_address == bob, 'wrong admin address');
+    }
+
+    #[test]
+    fn test_set_game_config_wrong_admin() {
+        let caller = starknet::contract_address_const::<0x0>();
+        let bob = starknet::contract_address_const::<'BOB'>();
+
+        let ndef = namespace_def();
+        let mut world = spawn_test_world([ndef].span());
+        world.sync_perms_and_inits(contract_defs());
+
+        let (contract_address, _) = world.dns(@"game_config").unwrap();
+        let game_config_system = IGameConfigDispatcher { contract_address };
+
+        game_config_system.set_game_config(bob);
+
+        let game_config: GameConfig = world.read_model(GAME_ID);
+
+        assert(game_config.admin_address == bob, 'wrong admin address');
+
+        starknet::testing::set_caller_address(caller);
+        game_config_system.set_game_config(bob);
     }
 }

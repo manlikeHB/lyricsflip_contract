@@ -1,6 +1,7 @@
 pub mod systems {
     pub mod actions;
     pub mod cards;
+    pub mod config;
 }
 
 pub mod models;
