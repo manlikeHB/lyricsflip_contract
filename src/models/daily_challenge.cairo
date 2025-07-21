@@ -1,5 +1,6 @@
 use starknet::ContractAddress;
 use core::traits::{Into};
+use dojo::model::ModelStorage;
 use dojo::world::WorldStorage;
 use lyricsflip::constants::{SECONDS_IN_DAY, GAME_LAUNCH_TIMESTAMP, BASE_REWARD};
 use starknet::get_block_timestamp;
@@ -100,6 +101,10 @@ pub trait DailyChallengeTrait {
     fn generate_friday_challenge(seed: u64) -> (felt252, felt252, felt252, u64, u64, u64, u8);
 
     fn generate_saturday_challenge(seed: u64) -> (felt252, felt252, felt252, u64, u64, u64, u8);
+    fn generate_daily_challenge(ref world: WorldStorage, date: u64) -> DailyChallenge;
+    fn check_challenge_completion_criteria(
+        challenge: DailyChallenge, score: u64, accuracy: u64,
+    ) -> bool;
 
     /// Reward
     /// Calculate reward amount based on difficulty and challenge type
@@ -125,11 +130,22 @@ pub trait DailyChallengeTrait {
 
 impl DailyChallengeImpl of DailyChallengeTrait {
     /// Ensure today's challenge exists, create if missing
-    fn ensure_daily_challenge_exists(ref world: WorldStorage) {}
+    fn ensure_daily_challenge_exists(ref world: WorldStorage) {
+        let today = Self::get_todays_date();
+        let existing_challenge: DailyChallenge = world.read_model(today);
+
+        // Check if challenge already exists (challenge_type = 0 means no challenge)
+        if existing_challenge.challenge_type == 0 {
+            // Generate new challenge for today
+            let new_challenge = Self::generate_daily_challenge(ref world, today);
+            world.write_model(@new_challenge);
+        }
+    }
 
     /// Get current date
     fn get_todays_date() -> u64 {
-        0
+        let current_timestamp = get_block_timestamp();
+        current_timestamp - (current_timestamp % SECONDS_IN_DAY)
     }
 
     /// Generate deterministic seed from date
@@ -375,6 +391,85 @@ impl DailyChallengeImpl of DailyChallengeTrait {
             target_streak,
             difficulty,
         )
+    }
+
+    fn generate_daily_challenge(ref world: WorldStorage, date: u64) -> DailyChallenge {
+        assert(Self::is_valid_challenge_date(date), 'Invalid challenge date');
+
+        let seed = Self::generate_seed_from_date(date);
+        let day_of_week = Self::get_day_of_week(date);
+
+        // Get challenge parameters from appropriate day generator
+        let (
+            challenge_type,
+            param1,
+            param2,
+            target_score,
+            target_accuracy,
+            target_streak,
+            difficulty,
+        ) =
+            match day_of_week {
+            0 => Self::generate_monday_challenge(seed), // Monday
+            1 => Self::generate_tuesday_challenge(seed), // Tuesday
+            2 => Self::generate_wednesday_challenge(seed), // Wednesday
+            3 => Self::generate_thursday_challenge(seed), // Thursday
+            4 => Self::generate_friday_challenge(seed), // Friday
+            5 => Self::generate_saturday_challenge(seed), // Saturday
+            6 => Self::generate_sunday_challenge(seed), // Sunday
+            _ => panic!("Invalid day of week"),
+        };
+
+        // Calculate rewards
+        let reward_amount = Self::calculate_reward_amount(difficulty, challenge_type);
+        let reward_type = Self::determine_reward_type(difficulty, challenge_type);
+
+        DailyChallenge {
+            date,
+            challenge_type,
+            challenge_param1: param1,
+            challenge_param2: param2,
+            target_score,
+            target_accuracy,
+            target_streak,
+            reward_type,
+            reward_amount,
+            difficulty,
+            participants_count: 0,
+            completion_count: 0,
+            is_active: true,
+        }
+    }
+
+    fn check_challenge_completion_criteria(
+        challenge: DailyChallenge, score: u64, accuracy: u64,
+    ) -> bool {
+        let challenge_type = challenge.challenge_type;
+
+        // Map DailyChallengeType enum values to completion logic
+        if challenge_type == 4 { // GenreMaster (Monday)
+            score >= challenge.target_score && accuracy >= challenge.target_accuracy
+        } else if challenge_type == 8 { // TimeAttack (Tuesday)
+            accuracy >= challenge.target_accuracy
+        } else if challenge_type == 3 { // SpeedRun (Saturday)
+            accuracy >= challenge.target_accuracy
+        } else if challenge_type == 5 { // DecadeExpert (Thursday)
+            score >= challenge.target_score && accuracy >= challenge.target_accuracy
+        } else if challenge_type == 10 { // NoMistakes (Friday)
+            accuracy >= challenge.target_accuracy // Should be 100%
+        } else if challenge_type == 11 { // MixedBag (Wednesday)
+            score >= challenge.target_score && accuracy >= challenge.target_accuracy
+        } else if challenge_type == 12 { // BeatTheAverage (Wednesday)
+            score >= challenge.target_score && accuracy >= challenge.target_accuracy
+        } else {
+            // For Sunday (PerfectStreak) and Survival, simplified without streaks
+            // Treat as score + accuracy challenges for now
+            let score_met = challenge.target_score == 0 || score >= challenge.target_score;
+            let accuracy_met = challenge.target_accuracy == 0
+                || accuracy >= challenge.target_accuracy;
+
+            score_met && accuracy_met
+        }
     }
 
     fn calculate_reward_amount(difficulty: u8, challenge_type: felt252) -> u64 {
